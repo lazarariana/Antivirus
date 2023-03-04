@@ -1,3 +1,4 @@
+// Copyright Ariana-Maria Lazar-Andrei 312CAb 2022-2023
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -6,23 +7,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 
 #define EXE 15
 #define DAY 86400
 #define HOUR 3600
 #define MIN 60
-#define MILSEC 1000
-#define LINK_LENGHT 500
-#define LINE_LENGHT 200
-#define HEADER 300
-#define DOMAIN 100
+#define LENGHT 1000
 #define PAYLOAD_AVG 575
 
-bool exe(char link[])
+int exe(char link[])
 {
 	int pos;
 	char *p;
+	/* Extensii malitioase*/
 	static const char * const mal_ext[] = { ".exe", ".bin", ".bat", ".docs",
 											"jpeg", ".dat", ".csv", ".xls",
 											".doc", ".css", ".sh", ".com",
@@ -36,7 +33,54 @@ bool exe(char link[])
 	return 0;
 }
 
-int check_url(char link[], char database[][100], int cnt)
+int damerau_levenshtein(char domain[], char safe_domain[])
+{
+	int n = strlen(safe_domain), m = strlen(domain), distance, i, j;
+	int max_length = fmax(strlen(domain), strlen(safe_domain));
+	int **lev = (int **)malloc((m + 1) * sizeof(int *));
+	for (int i = 0; i < m + 1; i++)
+		lev[i] = (int *)calloc(n + 1, sizeof(int));
+
+	for (i = 0; i < m + 1; i++)
+		for (j = 0; j < n + 1; j++)
+			if (!j)
+				lev[i][0] = i;
+			else if (!i)
+				lev[0][j] = j;
+
+	for (j = 1; j < n + 1; j++) {
+		for (i = 1; i < m + 1; i++) {
+			if (domain[i - 1] == safe_domain[j - 1])
+				lev[i][j] = lev[i - 1][j - 1];
+			else
+				lev[i][j] = 1 + fmin(lev[i - 1][j], fmin(lev[i][j - 1],
+									 lev[i - 1][j - 1]));
+		}
+	}
+	distance = lev[m][n];
+
+	for (i = 0; i < m + 1; i++)
+		free(lev[i]);
+	free(lev);
+	return distance;
+}
+
+int phishing(char domain[])
+{
+	int dist, i;
+	char freq_used[10][50] = {"facebook.com", "instagram.com", "baidu.com",
+							  "paypal", "en.wikipedia.org", "google.com",
+							  "linked.com", "itunes.apple.com", "youtube.com"};
+	for (i = 0; i < 9; i++) {
+		dist = damerau_levenshtein(domain, freq_used[i]);
+		if (dist && dist < 3)
+			return 1;
+	}
+
+	return 0;
+}
+
+int check_url(char link[], char database[][LENGHT], int cnt)
 {
 	int dif, nr_digits, i;
 	char *p, *q, domain[500], aux_msec[20];
@@ -44,13 +88,19 @@ int check_url(char link[], char database[][100], int cnt)
 
 	if (exe(link))
 		return 1;
-
+	/*
+	Verific daca url-ul are protocol, respectiv subdomain, conform
+	structurii din enuntul temei
+	*/
 	p = link;
 	if (strstr(p, protocol) == p)
 		p = p + strlen(protocol);
 	if (strstr(p, subdomain) == p)
 		p = p + strlen(subdomain);
 
+	/*
+	'/' marcheaza sfarsitul domain-ului
+	*/
 	q = strchr(p, '/');
 	if (!q)
 		q = link + strlen(link) - 1;
@@ -58,6 +108,9 @@ int check_url(char link[], char database[][100], int cnt)
 	strncpy(domain, p, dif);
 	domain[dif] = '\0';
 
+	/*
+	Calculez procentul de cifre din numarul total de caractere al domain-ului
+	*/
 	nr_digits = 0;
 	for (i = 0; i < strlen(domain); i++)
 		if (isdigit(domain[i]))
@@ -69,6 +122,9 @@ int check_url(char link[], char database[][100], int cnt)
 		if (strstr(domain, database[i]))
 			return 1;
 
+	if (phishing(domain))
+		return 1;
+
 	return 0;
 }
 
@@ -78,6 +134,10 @@ int calculate_time(char date[])
 	char *p;
 	int len, total = 0;
 
+	/*
+	Convertesc toate campurile duratei in secunde. Daca total > 0, atunci
+	presupunem ca link-ul este malitios
+	*/
 	p = strchr(date, ' ');
 	len = p - date;
 	strncpy(day, date, len);
@@ -114,6 +174,11 @@ int check_traffic(char line[])
 
 	p = strtok(line, ",");
 	columns = 0;
+	/*
+	Verificam daca: url-ul are un ip safe, flagurile sunt simultan nenule si
+	pentru durata totala > 0, payload-ul mediu > 575, conform presupunerilor
+	facute in baza fisierelor de test
+	*/
 	while (p) {
 		if (columns ==  2)
 			if (!strcmp(p, "ff02::16") || !strcmp(p, "255.255.255.255"))
@@ -142,17 +207,39 @@ int check_traffic(char line[])
 int main(void)
 {
 	int check, cnt = 0;
-	char link[LINK_LENGHT], header[HEADER], line[LINE_LENGHT];
-	char protocol[] = "https://", subdomain[] = "www.", ch, *p, *q;
-	char data_domain[DOMAIN], database[45][DOMAIN];
+	char link[LENGHT], header[LENGHT], line[LENGHT];
+	char data_domain[LENGHT], database[45][LENGHT];
+	FILE *f1 = fopen("data/urls/urls.in", "r");
+	FILE *output1 = fopen("urls-predictions.out", "w");
 	FILE *f2 = fopen("data/traffic/traffic.in", "r");
 	FILE *output2 = fopen("traffic-predictions.out", "w");
+	FILE *data = fopen("data/urls/domains_database", "r");
+
+	/*
+	Creez un vector de stringuri ce contine baza de date a domain-urilor
+	malitioase cunoscute
+	*/
+	while (fscanf(data, "%s", data_domain) != EOF) {
+		strcpy(database[cnt], data_domain);
+		cnt++;
+	}
+	fclose(data);
+
+	if (!f1)
+		return 0;
+
+	while (fscanf(f1, "%s", link) != EOF) {
+		check = check_url(link, database, cnt);
+		fprintf(output1, "%d\n", check);
+	}
+	fclose(f1);
+	fclose(output1);
 
 	if (!f2)
 		return 0;
 
-	fgets(header, HEADER, f2);
-	while (fgets(line, LINE_LENGHT, f2)) {
+	fgets(header, LENGHT, f2);
+	while (fgets(line, LENGHT, f2)) {
 		line[strlen(line) - 1] = '\0';
 		check = check_traffic(line);
 		fprintf(output2, "%d\n", check);
@@ -162,3 +249,4 @@ int main(void)
 
 	return 0;
 }
+
