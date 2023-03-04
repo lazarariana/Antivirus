@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+import os
+
+def exe(link):
+    mal_ext = [".exe", ".bin", ".bat", ".docs",
+    "jpeg", ".dat", ".csv", ".xls",
+    ".doc", ".css", ".sh", ".com",
+    ".pdf", ".jpg", ".png"]
+    p = os.path.splitext(link)[1]
+
+    for i in range(15):
+        if p == mal_ext[i]:
+            return True
+    return False
+
+def damerau_levenshtein(domain, safe_domain):
+    n = len(safe_domain)
+    m = len(domain)
+    max_length = max(len(domain), len(safe_domain))
+    lev = [[0 for j in range(n+1)] for i in range(m+1)]
+
+    for i in range(m + 1):
+        lev[i][0] = i
+    for j in range(n + 1):
+        lev[0][j] = j
+
+    for j in range(1, n + 1):
+        for i in range(1, m + 1):
+            if domain[i - 1] == safe_domain[j - 1]:
+                lev[i][j] = lev[i - 1][j - 1]
+            else:
+                lev[i][j] = 1 + min(lev[i - 1][j], lev[i][j - 1], lev[i - 1][j - 1])
+
+    distance = lev[m][n]
+    return distance
+
+def phishing(domain):
+    dist = 0
+    freq_used = ["facebook.com", "instagram.com", "baidu.com", "paypal", "en.wikipedia.org",
+                "google.com", "linked.com", "itunes.apple.com", "youtube.com"]
+    for i in range(9):
+        dist = damerau_levenshtein(domain, freq_used[i])
+        if dist and dist < 3:
+            return 1
+    return 0
+
+def check_url(link, database, k):
+    dif = 0
+    nr_digits = 0
+    protocol = "https://"
+    subdomain = "www."
+
+    if exe(link):
+        return 1
+
+    p = link
+    if protocol in p:
+        p = p[len(protocol):]
+    if subdomain in p:
+        p = p[len(subdomain):]
+
+    q = p.find('/')
+    if q == -1:
+        q = len(link) - 1
+    dif = q
+    domain = p[:dif]
+
+    for i in range(len(domain)):
+        if domain[i].isdigit():
+            nr_digits += 1
+    if nr_digits * 10 >= len(domain):
+        return 1
+
+    for i in range(k):
+        if database[i] == domain:
+            return 1
+
+    if phishing(domain):
+        return 1
+
+    return 0
+
+# def calculate_time(line):
+#     hours = 0
+#     min = 0
+#     total = 0
+#     i = 0
+#     j = 0
+#     msec = 0
+#     p = None
+#     q = None
+#     aux_msec = None
+#     for i in range(4):
+#         p = line.find(',')
+#         p += 1
+
+    # hours = int(p[7]) * 10 + int(p[8])
+    # total += hours * 3600
+
+    # p = line.find(':',p)
+    # p += 1
+    # min = int(p[0]) * 10 + int(p[1])
+    # total += min * 60
+
+    # if total == 0:
+    #     p += 1
+    #     p = line.find(':',p)
+    #     p += 1
+    #     i = 0
+    #     while p[i] != '.' and p[i] != ',' and i < len(p):
+    #         if p[i] > '0' and p[i] <= '9':
+    #             total = 1
+    #         i += 1
+    #     if p[i] == '.':
+    #         j = i + 1
+    #         while p[j] != ',':
+    #             j += 1
+
+    #         aux_msec = p[i+1:j]
+    #         if len(aux_msec) > 3:
+    #             msec  = int(aux_msec)
+    #             if (msec > 1000):
+    #                 total = 1
+    # return total
+
+def check_traffic(line):
+    count = 0
+    flag_cnt = 0
+    hours = 0
+    min = 0
+    total = 0
+    dif = 0
+    i = 0
+    j = 0
+    msec = 0
+    p = None
+    q = None
+    r = None
+    aux = None
+    columns = 0
+    aux_msec = None
+    aux = line.strip()
+    p = aux.split(',')
+    columns = 0
+    for item in p:
+        if columns == 2:
+            if item == "ff02::16" or item == "255.255.255.255":
+                return 0
+        if columns == 4:
+            hours = 0
+            min = 0
+            total = 0
+            i = 0
+            j = 0
+            msec = 0
+            aux_msec = None
+            hours = int(item[7]) * 10 + int(item[8])
+            total += hours * 3600
+
+            min = int(item[10]) * 10 + int(item[11])
+            total += min * 60
+
+            seconds = int(item[13]) * 10 + int(item[14])
+            total += seconds
+
+        if columns == 16:
+            if total > 0 and float(item) > 575:
+                return 1
+
+        if (columns == 9 or columns == 10 or columns == 11) and item == "0":
+            flag_cnt += 1
+
+        columns += 1
+
+    if flag_cnt == 3:
+        return 1
+
+    return 0
+
+def main():
+    check = 0
+    cnt = 0
+    filename = ""
+    link = ""
+    header = ""
+    line = ""
+    protocol = "https://"
+    subdomain = "www."
+    domain = ""
+    data_domain = ""
+    database = [['' for i in range(100)] for j in range(45)]
+    f1 = open("data/urls/urls.in", "rt")
+    output1 = open("urls-predictions.out", "wt")
+    f2 = open("data/traffic/traffic.in", "rt")
+    output2 = open("traffic-predictions.out", "wt")
+    data = open("data/urls/domains_database", "rt")
+
+    for line in data:
+        data_domain = line.strip()
+        database[cnt] = data_domain
+        cnt += 1
+    data.close()
+
+    if f1 is None:
+        print("File does not exist\n")
+    for line in f1:
+        link = line.strip()
+        check = check_url(link, database, cnt)
+        output1.write(str(check) + '\n')
+    f1.close()
+    output1.close()
+
+    if f2 is None:
+        print("File does not exist\n")
+    header = f2.readline()
+    for line in f2:
+        line = line.strip()
+        check = check_traffic(line)
+        output2.write(str(check) + '\n')
+    f2.close()
+    output2.close()
+
+    return 0
+
+if __name__ == '__main__':
+    main()
